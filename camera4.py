@@ -2,12 +2,30 @@ import cv2
 import numpy as np
 import time
 import tkinter as tk
+from tkinter import messagebox
+import threading
 import PoseModule as pm
 from collections import deque
 
-# Initialize video capture and pose detector
-cap = cv2.VideoCapture(0)
+# Pose detector (heavy model load, keep global)
 detector = pm.poseDetector(detectionCon=0.7, trackCon=0.7)  # Increased confidence thresholds
+
+def open_camera():
+    """Try indices 0-4, return an opened capture or None."""
+    for idx in range(5):
+        c = cv2.VideoCapture(idx)
+        if c.isOpened():
+            ok, _ = c.read()
+            if ok:
+                print(f"Camera opened at index {idx}")
+                return c
+            c.release()
+    return None
+
+# Lazily opened per exercise session (None until Start pressed)
+cap = None
+stop_event = threading.Event()
+worker_thread = None
 
 class ExerciseTracker:
     def __init__(self):
@@ -39,29 +57,39 @@ class ExerciseTracker:
 def exercise_logic(exercise_func, total_rep=10):
     count = 0
     dir = 0
-    frame_count = 0
     start_time = time.time()
     tracker = ExerciseTracker()
-    
-    while count < total_rep:
+    fail_count = 0
+
+    while count < total_rep and not stop_event.is_set():
         success, img = cap.read()
-        if not success:
+        if not success or img is None:
+            fail_count += 1
+            if fail_count > 30:
+                print("Camera read failed 30x, stopping.")
+                break
+            time.sleep(0.01)
             continue
-        
+        fail_count = 0
+
         img = cv2.resize(img, (1288, 720))
         img = detector.findPose(img, False)
         lmlist = detector.findPosition(img, False)
-        
+
         if len(lmlist) != 0:
             count, dir = exercise_func(img, lmlist, count, dir, tracker)
-            
-            # Display rep count and timer
+
             cv2.putText(img, f'Reps: {int(count)}', (50, 100), cv2.FONT_HERSHEY_PLAIN, 3, (255, 0, 0), 3)
             cv2.putText(img, f'Time: {int(time.time() - start_time)}s', (50, 150), cv2.FONT_HERSHEY_PLAIN, 3, (255, 0, 0), 3)
-        
-        cv2.imshow("Exercise Detection", img)
+
+        cv2.imshow("Exercise Detection (press q to stop)", img)
         if cv2.waitKey(1) & 0xFF == ord('q'):
+            stop_event.set()
             break
+
+    cv2.destroyAllWindows()
+    if cap is not None:
+        cap.release()
 
 def push_up_logic(img, lmlist, count, dir, tracker):
     # Points for both arms (shoulder, elbow, wrist)
@@ -315,11 +343,47 @@ exercise_menu.configure(width=20)
 exercise_menu.pack(pady=10)
 
 # Function to start exercise
+def run_session(exercise_fn):
+    global cap
+    cap = open_camera()
+    if cap is None:
+        root.after(0, lambda: messagebox.showerror(
+            "Camera error",
+            "Could not open any camera (tried indices 0-4).\n"
+            "Check that /dev/video1 is accessible."))
+        root.after(0, on_session_end)
+        return
+    exercise_logic(exercise_fn)
+    root.after(0, on_session_end)
+
+def on_session_end():
+    start_button.config(state=tk.NORMAL)
+    stop_button.config(state=tk.DISABLED)
+    try:
+        root.deiconify()
+    except tk.TclError:
+        pass
+
 def start_exercise():
+    global worker_thread
+    if worker_thread is not None and worker_thread.is_alive():
+        return
+    stop_event.clear()
     selected_exercise = exercise_var.get()
-    root.iconify()  # Minimize window during exercise
-    exercise_logic(exercises[selected_exercise])
-    root.deiconify()  # Restore window after exercise
+    start_button.config(state=tk.DISABLED)
+    stop_button.config(state=tk.NORMAL)
+    try:
+        root.iconify()
+    except tk.TclError:
+        pass
+    worker_thread = threading.Thread(
+        target=run_session,
+        args=(exercises[selected_exercise],),
+        daemon=True)
+    worker_thread.start()
+
+def stop_exercise():
+    stop_event.set()
 
 # Create styled button
 start_button = tk.Button(root, text="Start Exercise", 
@@ -332,6 +396,16 @@ start_button = tk.Button(root, text="Start Exercise",
 start_button.pack(pady=20)
 
 # Add quit button
+stop_button = tk.Button(root, text="Stop",
+                       command=stop_exercise,
+                       font=("Arial", 12),
+                       bg='#FF9800',
+                       fg='white',
+                       width=15,
+                       height=1,
+                       state=tk.DISABLED)
+stop_button.pack(pady=5)
+
 quit_button = tk.Button(root, text="Quit",
                        command=root.quit,
                        font=("Arial", 12),
@@ -341,9 +415,25 @@ quit_button = tk.Button(root, text="Quit",
                        height=1)
 quit_button.pack(pady=10)
 
+def on_close():
+    stop_event.set()
+    if cap is not None:
+        try:
+            cap.release()
+        except Exception:
+            pass
+    cv2.destroyAllWindows()
+    root.destroy()
+
+root.protocol("WM_DELETE_WINDOW", on_close)
+
 # Run the application
 root.mainloop()
 
 # Clean up
-cap.release()
+if cap is not None:
+    try:
+        cap.release()
+    except Exception:
+        pass
 cv2.destroyAllWindows()
