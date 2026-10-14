@@ -28,6 +28,39 @@ You can install the required packages using pip:
 pip install opencv-python numpy mediapipe
 ```
 
+### Setup with uv (recommended)
+
+This project ships `pyproject.toml` and `uv.lock` so the environment is reproducible.
+[uv](https://docs.astral.sh/uv/) manages the Python version (3.12) and all dependencies.
+
+1. Install uv (if needed):
+
+   ```bash
+   curl -LsSf astral.sh/uv/install.sh | sh
+   ```
+
+2. Sync the locked environment:
+
+   ```bash
+   uv sync
+   ```
+
+3. Run the app:
+
+   ```bash
+   uv run camera4.py
+   ```
+
+Notes:
+
+- `mediapipe` is pinned to `==0.10.21` because MediaPipe 1.x removed the
+  `mp.solutions` API that `PoseModule.py` uses. Do not upgrade it without
+  migrating to `mp.tasks.vision.PoseLandmarker`.
+- The app probes camera indices 0-4 at startup and uses the first one that
+  returns frames, so a webcam on `/dev/video1` (or similar) works without
+  code changes. Use the Stop button (or press `q` in the video window) to end
+  a session.
+
 ## File Structure
 
 The project consists of two main files:
