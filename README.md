@@ -48,8 +48,10 @@ This project ships `pyproject.toml` and `uv.lock` so the environment is reproduc
 3. Run the app:
 
    ```bash
-   uv run camera4.py
+   uv run main.py
    ```
+
+   (`uv run camera4.py` also works — it is a backward-compat shim that calls into `main.py`.)
 
 Notes:
 
@@ -63,29 +65,39 @@ Notes:
 
 ## File Structure
 
-The project consists of two main files:
-
-1. **`camera4.py`**: The main application file that handles video capture, pose detection, exercise logic, and the GUI.
-  
-2. **`PoseModule.py`**: A module that encapsulates the pose detection functionality using MediaPipe.
+- **`main.py`**: Entry point — run with `uv run main.py` (`uv run camera4.py` also works via a backward-compat shim).
+- **`app.py`**: `ExerciseApp` Tk GUI (exercise selection, Start/Stop, session threading).
+- **`session.py`**: `run_session()` capture loop — frame grab, pose detection, rep overlay, `q`-to-stop.
+- **`camera.py`**: `open_camera()` — probes camera indices 0-4, returns the first one delivering frames.
+- **`pose_detector.py`**: `PoseDetector` — MediaPipe landmarks, positions, joint angles.
+- **`tracker.py`**: `ExerciseTracker` — angle smoothing for stable rep counting.
+- **`exercises/`**: One module per exercise plus a registry (`EXERCISES`, `get()`):
+  `pushups.py`, `squats.py`, `jumping_jacks.py`, `situps.py`, `lunges.py`.
+  To add an exercise, create `exercises/my_move.py` with `NAME` and
+  `logic(img, lmlist, count, dir, tracker)`, then register it in
+  `exercises/__init__.py`.
+- **`camera4.py` / `PoseModule.py`**: Backward-compat shims re-exporting `main` / `PoseDetector`.
 
 ## Usage
 
 ### Running the Application
 
 1. Ensure your webcam is connected and accessible.
-  
+
 2. Run the main application file:
 
    ```bash
-   python camera4.py
+   uv run main.py
    ```
+
+   (Without uv: `python main.py` after `pip install opencv-python numpy mediapipe`.
+   `camera4.py` remains as a working alias.)
 
 3. Upon launching, a GUI will appear allowing you to select an exercise from the dropdown menu.
 
 4. Click the "Start Exercise" button to begin tracking your selected exercise. The application will provide real-time feedback on your performance.
 
-5. Press 'q' to quit the exercise session or use the "Quit" button in the GUI.
+5. Press 'q' in the video window or click "Stop" to end the session; use "Quit" (or close the window) to exit the app.
 
 ### Supported Exercises
 
